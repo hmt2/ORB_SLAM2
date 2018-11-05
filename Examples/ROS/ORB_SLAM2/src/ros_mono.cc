@@ -26,6 +26,10 @@
 
 #include<ros/ros.h>
 #include <cv_bridge/cv_bridge.h>
+#include <tf/transform_datatypes.h>
+#include <tf/transform_broadcaster.h>
+#include <geometry_msgs/TransformStamped.h>
+#include <geometry_msgs/PoseStamped.h>
 
 #include<opencv2/core/core.hpp>
 
@@ -41,6 +45,7 @@ public:
     void GrabImage(const sensor_msgs::ImageConstPtr& msg);
 
     ORB_SLAM2::System* mpSLAM;
+    ros::Publisher pub;
 };
 
 int main(int argc, char **argv)
@@ -62,6 +67,7 @@ int main(int argc, char **argv)
 
     ros::NodeHandle nodeHandler;
     ros::Subscriber sub = nodeHandler.subscribe(argv[3], 1, &ImageGrabber::GrabImage,&igb);
+    igb.pub = nodeHandler.advertise<geometry_msgs::PoseStamped>("/orb_slam/pose",100);
 
     ros::spin();
 
@@ -90,7 +96,58 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
         return;
     }
 
-    mpSLAM->TrackMonocular(cv_ptr->image,cv_ptr->header.stamp.toSec());
+    cv::Mat pose = mpSLAM->TrackMonocular(cv_ptr->image,cv_ptr->header.stamp.toSec());
+    //mpSLAM->getTracker();
+
+    if (pose.empty())
+        return;
+    cout << "Pose = "<< endl << " "  << pose << endl << endl;
+
+    /* global left handed coordinate system */
+    static cv::Mat pose_prev = cv::Mat::eye(4,4, CV_32F);
+    static cv::Mat world_lh = cv::Mat::eye(4,4, CV_32F);
+    // matrix to flip signs of sinus in rotation matrix, not sure why we need to do that
+    static const cv::Mat flipSign = (cv::Mat_<float>(4,4) <<   1,-1,-1, 1,
+                                                               -1, 1,-1, 1,
+                                                               -1,-1, 1, 1,
+                                                                1, 1, 1, 1);
+
+    //prev_pose * T = pose
+    cout << "Prev = "<< endl << " "  << pose_prev << endl << endl;
+    cout << "Prev_inv = "<< endl << " "  << pose_prev.inv() << endl << endl;
+    cv::Mat translation =  (pose * pose_prev.inv()).mul(flipSign);
+    cout << "Trans = "<< endl << " "  << translation << endl << endl;
+    world_lh = world_lh * translation;
+    cout << "World = "<< endl << " "  << world_lh << endl << endl;
+    pose_prev = pose.clone();
+
+
+    /* transform into global right handed coordinate system, publish in ROS*/
+    tf::Matrix3x3 cameraRotation_rh(  - world_lh.at<float>(0,0),   world_lh.at<float>(0,1),   world_lh.at<float>(0,2),
+                                  - world_lh.at<float>(1,0),   world_lh.at<float>(1,1),   world_lh.at<float>(1,2),
+                                    world_lh.at<float>(2,0), - world_lh.at<float>(2,1), - world_lh.at<float>(2,2));
+
+    tf::Vector3 cameraTranslation_rh( world_lh.at<float>(0,3),world_lh.at<float>(1,3), - world_lh.at<float>(2,3) );
+
+    //rotate 270deg about x and 270deg about x to get ENU: x forward, y left, z up
+    const tf::Matrix3x3 rotation270degXZ(   0, 1, 0,
+                                            0, 0, 1,
+                                            1, 0, 0);
+
+    static tf::TransformBroadcaster br;
+
+    tf::Matrix3x3 globalRotation_rh = cameraRotation_rh * rotation270degXZ;
+    tf::Vector3 globalTranslation_rh = cameraTranslation_rh * rotation270degXZ;
+    tf::Transform transform = tf::Transform(globalRotation_rh, globalTranslation_rh);
+    br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "camera_link", "camera_pose"));
+
+    geometry_msgs::PoseStamped p;
+    p.header.stamp = ros::Time::now();
+    p.header.frame_id = "camera_link";
+    p.pose.position.x = pose.at<float>(0,3);
+    p.pose.position.y = pose.at<float>(1,3);
+    p.pose.position.z = pose.at<float>(2,3);
+    pub.publish(p);
 }
 
 
