@@ -40,12 +40,13 @@ using namespace std;
 class ImageGrabber
 {
 public:
-    ImageGrabber(ORB_SLAM2::System* pSLAM):mpSLAM(pSLAM){}
+    ImageGrabber(ORB_SLAM2::System* pSLAM):mpSLAM(pSLAM), first(true){}
 
     void GrabImage(const sensor_msgs::ImageConstPtr& msg);
 
     ORB_SLAM2::System* mpSLAM;
     ros::Publisher pub;
+    bool first;
 };
 
 int main(int argc, char **argv)
@@ -55,7 +56,7 @@ int main(int argc, char **argv)
 
     if(argc != 5)
     {
-        cerr << endl << "Usage: rosrun ORB_SLAM2 Mono path_to_vocabulary path_to_settings topic save/load[0|1]" << endl;
+        cerr << endl << "Usage: rosrun ORB_SLAM2 Mono path_to_vocabulary path_to_settings topic use_map[0|1]" << endl;
         ros::shutdown();
         return 1;
     }    
@@ -112,6 +113,12 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
                                                                -1,-1, 1, 1,
                                                                 1, 1, 1, 1);
 
+    if(first) {
+        pose_prev = pose.clone();
+        first = false;
+        return;
+    }
+
     //prev_pose * T = pose
     cout << "Prev = "<< endl << " "  << pose_prev << endl << endl;
     cout << "Prev_inv = "<< endl << " "  << pose_prev.inv() << endl << endl;
@@ -139,14 +146,15 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
     tf::Matrix3x3 globalRotation_rh = cameraRotation_rh * rotation270degXZ;
     tf::Vector3 globalTranslation_rh = cameraTranslation_rh * rotation270degXZ;
     tf::Transform transform = tf::Transform(globalRotation_rh, globalTranslation_rh);
+    transform = tf::Transform(transform.getRotation().normalize(), globalTranslation_rh);
     br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "camera_link", "camera_pose"));
 
     geometry_msgs::PoseStamped p;
     p.header.stamp = ros::Time::now();
-    p.header.frame_id = "camera_link";
-    p.pose.position.x = pose.at<float>(0,3);
-    p.pose.position.y = pose.at<float>(1,3);
-    p.pose.position.z = pose.at<float>(2,3);
+    p.header.frame_id = "camera_pose";
+    p.pose.position.x = globalTranslation_rh[0];
+    p.pose.position.y = globalTranslation_rh[1];
+    p.pose.position.z = globalTranslation_rh[2];
     pub.publish(p);
 }
 
