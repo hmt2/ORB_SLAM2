@@ -24,14 +24,15 @@
 #include<fstream>
 #include<chrono>
 
-#include<ros/ros.h>
+#include <ros/ros.h>
 #include <cv_bridge/cv_bridge.h>
 #include <tf/transform_datatypes.h>
 #include <tf/transform_broadcaster.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/Quaternion.h>
 
-#include<opencv2/core/core.hpp>
+#include <opencv2/core/core.hpp>
 
 #include"../../../include/System.h"
 
@@ -112,14 +113,7 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
                                                                -1, 1,-1, 1,
                                                                -1,-1, 1, 1,
                                                                 1, 1, 1, 1);
-
-    if(first) {
-        pose_prev = pose.clone();
-        first = false;
-        return;
-    }
-
-    //prev_pose * T = pose
+    
     cout << "Prev = "<< endl << " "  << pose_prev << endl << endl;
     cout << "Prev_inv = "<< endl << " "  << pose_prev.inv() << endl << endl;
     cv::Mat translation =  (pose * pose_prev.inv()).mul(flipSign);
@@ -131,8 +125,8 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
 
     /* transform into global right handed coordinate system, publish in ROS*/
     tf::Matrix3x3 cameraRotation_rh(  - world_lh.at<float>(0,0),   world_lh.at<float>(0,1),   world_lh.at<float>(0,2),
-                                  - world_lh.at<float>(1,0),   world_lh.at<float>(1,1),   world_lh.at<float>(1,2),
-                                    world_lh.at<float>(2,0), - world_lh.at<float>(2,1), - world_lh.at<float>(2,2));
+				  - world_lh.at<float>(1,0),   world_lh.at<float>(1,1),   world_lh.at<float>(1,2),
+				    world_lh.at<float>(2,0), - world_lh.at<float>(2,1), - world_lh.at<float>(2,2));
 
     tf::Vector3 cameraTranslation_rh( world_lh.at<float>(0,3),world_lh.at<float>(1,3), - world_lh.at<float>(2,3) );
 
@@ -143,7 +137,12 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
 
     static tf::TransformBroadcaster br;
 
+    double roll, pitch, yaw;
     tf::Matrix3x3 globalRotation_rh = cameraRotation_rh * rotation270degXZ;
+    globalRotation_rh.getRPY(roll, pitch, yaw);
+    cout << "RPY: " << roll <<", "<<pitch<<", "<<yaw<<endl<<endl;
+    yaw -= M_PI/2;
+    globalRotation_rh.setRPY(0.0, 0.0, yaw);
     tf::Vector3 globalTranslation_rh = cameraTranslation_rh * rotation270degXZ;
     tf::Transform transform = tf::Transform(globalRotation_rh, globalTranslation_rh);
     transform = tf::Transform(transform.getRotation().normalize(), globalTranslation_rh);
@@ -155,6 +154,7 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
     p.pose.position.x = globalTranslation_rh[0];
     p.pose.position.y = globalTranslation_rh[1];
     p.pose.position.z = globalTranslation_rh[2];
+    p.pose.orientation = tf::createQuaternionMsgFromYaw(yaw);
     pub.publish(p);
 }
 
