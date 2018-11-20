@@ -166,7 +166,7 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
 	transformCurrent.setRotation(tfqt);
 	//Publishes transform
 	static tf::TransformBroadcaster br;
-	br.sendTransform(tf::StampedTransform(transformCurrent, ros::Time::now(), "world", "camera_pose"));
+	br.sendTransform(tf::StampedTransform(transformCurrent, ros::Time::now(), "map", "camera_pose"));
 
     geometry_msgs::PoseStamped p;
     p.header.stamp = ros::Time::now();
