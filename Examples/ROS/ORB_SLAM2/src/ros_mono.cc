@@ -84,97 +84,100 @@ int main(int argc, char **argv)
     return 0;
 }
 
+tf::Quaternion hamiltonProduct(tf::Quaternion a, tf::Quaternion b) {
+
+	tf::Quaternion c;
+
+		c[0] = (a[0]*b[0]) - (a[1]*b[1]) - (a[2]*b[2]) - (a[3]*b[3]);
+		c[1] = (a[0]*b[1]) + (a[1]*b[0]) + (a[2]*b[3]) - (a[3]*b[2]);
+		c[2] = (a[0]*b[2]) - (a[1]*b[3]) + (a[2]*b[0]) + (a[3]*b[1]);
+		c[3] = (a[0]*b[3]) + (a[1]*b[2]) - (a[2]*b[1]) + (a[3]*b[0]);
+
+	return c;
+}
+
 void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
 {
-    // Copy the ros image message to cv::Mat.
-    cv_bridge::CvImageConstPtr cv_ptr;
-    try
-    {
-        cv_ptr = cv_bridge::toCvShare(msg);
-    }
-    catch (cv_bridge::Exception& e)
-    {
-        ROS_ERROR("cv_bridge exception: %s", e.what());
-        return;
-    }
+	// Copy the ros image message to cv::Mat.
+	cv_bridge::CvImageConstPtr cv_ptr;
+	try
+	{
+		cv_ptr = cv_bridge::toCvShare(msg);
+	}
+	catch (cv_bridge::Exception& e)
+	{
+		ROS_ERROR("cv_bridge exception: %s", e.what());
+		return;
+	}
 
-    cv::Mat pose = mpSLAM->TrackMonocular(cv_ptr->image,cv_ptr->header.stamp.toSec());
-    //mpSLAM->getTracker();
+	cv::Mat pose = mpSLAM->TrackMonocular(cv_ptr->image,cv_ptr->header.stamp.toSec());
 
-    if (pose.empty())
-        return;
+	if (pose.empty())
+		return;
 
-    cv::Mat Rwc = pose.rowRange(0,3).colRange(0,3).t();//Extract the rotation matrix from the total one
-    cv::Mat twc = -Rwc*pose.rowRange(0,3).col(3);//extract the traslation vector, but with the correct orientation
-    cout << "Rwc = "<< endl << " " << Rwc << endl << endl;
-    cout << "twc = "<< endl << " " << twc << endl << endl;
-    
-    cout << "Pose = "<< endl << " "  << pose << endl << endl;
+	//Quaternion
+	tf::Matrix3x3 tf3d;
+	tf3d.setValue(pose.at<float>(0,0), pose.at<float>(0,1), pose.at<float>(0,2),
+			pose.at<float>(1,0), pose.at<float>(1,1), pose.at<float>(1,2),
+			pose.at<float>(2,0), pose.at<float>(2,1), pose.at<float>(2,2));
 
-    /* global left handed coordinate system */
-    static cv::Mat pose_prev = cv::Mat::eye(4,4, CV_32F);
-    static cv::Mat world_lh = cv::Mat::eye(4,4, CV_32F);
-    // matrix to flip signs of sinus in rotation matrix, not sure why we need to do that
-    static const cv::Mat flipSign = (cv::Mat_<float>(4,4) <<   1,-1,-1, 1,
-                                                               -1, 1,-1, 1,
-                                                               -1,-1, 1, 1,
-                                                                1, 1, 1, 1);
-    
-    cout << "Prev = "<< endl << " "  << pose_prev << endl << endl;
-    cout << "Prev_inv = "<< endl << " "  << pose_prev.inv() << endl << endl;
-    cv::Mat translation =  pose.mul(flipSign); //(pose * pose_prev.inv()); //.mul(flipSign);
-    cout << "Trans = "<< endl << " "  << translation << endl << endl;
-    world_lh = translation; //world_lh * translation;
-    cout << "World = "<< endl << " "  << world_lh << endl << endl;
-    pose_prev = pose.clone();
+	tf::Quaternion tfqt;
+	tf3d.getRotation(tfqt);
+	double aux = tfqt[0];
+		tfqt[0]=-tfqt[2];
+		tfqt[2]=tfqt[1];
+		tfqt[1]=aux;
 
 
-    /* transform into global right handed coordinate system, publish in ROS*/
-    //tf::Matrix3x3 cameraRotation_rh(  - world_lh.at<float>(0,0),   world_lh.at<float>(0,1),   world_lh.at<float>(0,2),
-				  //- world_lh.at<float>(1,0),   world_lh.at<float>(1,1),   world_lh.at<float>(1,2),
-				    //world_lh.at<float>(2,0), - world_lh.at<float>(2,1), - world_lh.at<float>(2,2));
 
-    //tf::Vector3 cameraTranslation_rh( world_lh.at<float>(0,3),world_lh.at<float>(1,3), - world_lh.at<float>(2,3) );
-    //tf::Vector3 cameraTranslation_rh(-world_lh.at<float>(2,3), world_lh.at<float>(0,3), 0.0);
+	//Translation for camera
+	tf::Vector3 origin;
+	origin.setValue(pose.at<float>(0,3),pose.at<float>(1,3),pose.at<float>(2,3));
+	//rotate 270deg about x and 270deg about x to get ENU: x forward, y left, z up
+	const tf::Matrix3x3 rotation270degXZ(   0, 1, 0,
+						0, 0, 1,
+					       -1, 0, 0);
 
-    //tf::Matrix3x3 cameraRotation_rh(  world_lh.at<float>(0,0),   world_lh.at<float>(0,1),   world_lh.at<float>(0,2),
-				  //world_lh.at<float>(1,0),   world_lh.at<float>(1,1),   world_lh.at<float>(1,2),
-				    //world_lh.at<float>(2,0), world_lh.at<float>(2,1), world_lh.at<float>(2,2));
+	tf::Vector3 translationForCamera = origin * rotation270degXZ;
 
-    tf::Matrix3x3 cameraRotation_rh(  Rwc.at<float>(0,0),   Rwc.at<float>(0,1),   Rwc.at<float>(0,2),
-				  Rwc.at<float>(1,0),   Rwc.at<float>(1,1),   Rwc.at<float>(1,2),
-				    Rwc.at<float>(2,0), Rwc.at<float>(2,1), Rwc.at<float>(2,2));
-    //tf::Vector3 cameraTranslation_rh( world_lh.at<float>(0,3),world_lh.at<float>(1,3), world_lh.at<float>(2,3) );
-    tf::Vector3 cameraTranslation_rh(twc.at<float>(2,0), -twc.at<float>(0,0), twc.at<float>(1,0) );
+	//Hamilton (Translation for world)
+	tf::Quaternion quaternionForHamilton(tfqt[3], tfqt[0], tfqt[1], tfqt[2]);
+	tf::Quaternion secondQuaternionForHamilton(tfqt[3], -tfqt[0], -tfqt[1], -tfqt[2]);
+	tf::Quaternion translationHamilton(0, translationForCamera[0], translationForCamera[1], translationForCamera[2]);
 
-    //rotate 270deg about x and 270deg about x to get ENU: x forward, y left, z up
-    const tf::Matrix3x3 rotation270degXZ(   0, 1, 0,
-					    0, 0, 1,
-					    1, 0, 0);
+	tf::Quaternion translationStepQuat;
+	translationStepQuat = hamiltonProduct(hamiltonProduct(quaternionForHamilton, translationHamilton), secondQuaternionForHamilton);
 
-    //const tf::Matrix3x3 rotation270degXZ(   -1, 0, 0,
-                                            //0, 1, 0,
-                                            //0, 0, -1);
-    static tf::TransformBroadcaster br;
+	tf::Vector3 translation(translationStepQuat[1], translationStepQuat[2], translationStepQuat[3]);
 
-    double roll, pitch, yaw;
-    tf::Matrix3x3 globalRotation_rh = cameraRotation_rh; // * rotation270degXZ;
-    //globalRotation_rh.getRPY(roll, pitch, yaw);
-    //cout << "RPY: " << roll <<", "<<pitch<<", "<<yaw<<endl<<endl;
-    //globalRotation_rh.setRPY(0.0, 0.0, pitch);
-    tf::Vector3 globalTranslation_rh = cameraTranslation_rh; // * rotation270degXZ;
-    tf::Transform transform = tf::Transform(globalRotation_rh, globalTranslation_rh);
-    transform = tf::Transform(transform.getRotation().normalize(), globalTranslation_rh);
-    br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "map", "orb_pose"));
+	//Scaling
+	//if(m_numScales > 0) {
+		//translation = m_scale * translation;
+	//}
+	//Set world
+	//m_currentQ = tfqt;
+	//m_currentT = translation;
+	//translation = translation - m_worldT;
+	//tfqt = tfqt * m_worldQ.inverse();
+
+	//Creates transform and populates it with translation and quaternion
+	tf::Transform transformCurrent;
+	transformCurrent.setOrigin(translation);
+	transformCurrent.setRotation(tfqt);
+	//Publishes transform
+	static tf::TransformBroadcaster br;
+	br.sendTransform(tf::StampedTransform(transformCurrent, ros::Time::now(), "world", "camera_pose"));
 
     geometry_msgs::PoseStamped p;
     p.header.stamp = ros::Time::now();
     p.header.frame_id = "camera_pose";
-    p.pose.position.x = globalTranslation_rh[0];
-    p.pose.position.y = globalTranslation_rh[1];
-    p.pose.position.z = globalTranslation_rh[2];
-    p.pose.orientation = tf::createQuaternionMsgFromYaw(yaw);
+    p.pose.position.x = translation[0];
+    p.pose.position.y = translation[1];
+    p.pose.position.z = translation[2];
+    p.pose.orientation.x = tfqt[0];
+    p.pose.orientation.y = tfqt[1];
+    p.pose.orientation.z = tfqt[2];
+    p.pose.orientation.w = tfqt[3];
     pub.publish(p);
 }
-
 
