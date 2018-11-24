@@ -151,9 +151,8 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
 	tf::Vector3 translation(translationStepQuat[1], translationStepQuat[2], translationStepQuat[3]);
 
 	//Scaling
-	//if(m_numScales > 0) {
-		//translation = m_scale * translation;
-	//}
+	translation = 0.555 * translation;
+
 	//Set world
 	//m_currentQ = tfqt;
 	//m_currentT = translation;
