@@ -151,7 +151,8 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
 	tf::Vector3 translation(translationStepQuat[1], translationStepQuat[2], translationStepQuat[3]);
 
 	//Scaling
-	translation = 0.555 * translation;
+	translation[0] = 0.2661 * translation[0];
+	translation[1] = 0.1929 * translation[1];
 
 	//Set world
 	//m_currentQ = tfqt;
@@ -169,7 +170,7 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
 
     geometry_msgs::PoseStamped p;
     p.header.stamp = ros::Time::now();
-    p.header.frame_id = "camera_pose";
+    p.header.frame_id = "map";
     p.pose.position.x = translation[0];
     p.pose.position.y = translation[1];
     p.pose.position.z = translation[2];
